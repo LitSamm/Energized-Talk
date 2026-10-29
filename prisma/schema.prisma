@@ -1,0 +1,32 @@
+// Prisma Schema for Energize Talk Anargya ITS Registration System
+// Database: Supabase PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Registration {
+  id                  String   @id @default(cuid())
+  ticketCode          String   @unique
+  fullName            String
+  institution         String
+  email               String   @unique
+  phone               String
+  attendanceType      String   @default("ONLINE")
+  interestTopic       String?
+  questionsForSpeaker String?
+  status              String   @default("CONFIRMED")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([email])
+  @@index([ticketCode])
+  @@index([createdAt])
+  @@map("registrations")
+}
