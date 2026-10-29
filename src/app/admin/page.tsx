@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   Users,
@@ -14,11 +14,10 @@ import {
   X,
   Lock,
   LogOut,
-  Building,
-  Mail,
-  Phone,
-  Calendar,
 } from "lucide-react";
+
+const ADMIN_AUTH_KEY = "anargya_admin_auth";
+const ADMIN_AUTH_EVENT = "anargya-admin-auth-change";
 
 interface RegistrationItem {
   id: string;
@@ -34,27 +33,52 @@ interface RegistrationItem {
   createdAt: string;
 }
 
+function subscribeToAdminAuth(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(ADMIN_AUTH_EVENT, onChange);
+
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(ADMIN_AUTH_EVENT, onChange);
+  };
+}
+
+function getAdminAuthSnapshot() {
+  return window.sessionStorage.getItem(ADMIN_AUTH_KEY) === "true";
+}
+
+function getServerAdminAuthSnapshot() {
+  return false;
+}
+
+async function fetchRegistrationList(): Promise<RegistrationItem[]> {
+  const res = await fetch("/api/registrations");
+  const json = await res.json();
+
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || "Gagal memuat daftar peserta.");
+  }
+
+  return json.data || [];
+}
+
 export default function AdminPage() {
   // Authentication State
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const isAuthenticated = useSyncExternalStore(
+    subscribeToAdminAuth,
+    getAdminAuthSnapshot,
+    getServerAdminAuthSnapshot
+  );
   const [passwordInput, setPasswordInput] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Dashboard Data State
   const [registrations, setRegistrations] = useState<RegistrationItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState<RegistrationItem | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // Check existing session
-  useEffect(() => {
-    const savedAuth = sessionStorage.getItem("anargya_admin_auth");
-    if (savedAuth === "true") {
-      setIsAuthenticated(true);
-    }
-  }, []);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,8 +87,9 @@ export default function AdminPage() {
 
     // Passcode validation
     if (passwordInput === "anargya2026" || passwordInput === "admin123") {
-      sessionStorage.setItem("anargya_admin_auth", "true");
-      setIsAuthenticated(true);
+      setLoading(true);
+      sessionStorage.setItem(ADMIN_AUTH_KEY, "true");
+      window.dispatchEvent(new Event(ADMIN_AUTH_EVENT));
       setPasswordInput("");
     } else {
       setLoginError("Kata sandi salah. Silakan masukkan kata sandi admin yang benar.");
@@ -73,19 +98,16 @@ export default function AdminPage() {
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem("anargya_admin_auth");
-    setIsAuthenticated(false);
+    sessionStorage.removeItem(ADMIN_AUTH_KEY);
+    window.dispatchEvent(new Event(ADMIN_AUTH_EVENT));
     setRegistrations([]);
+    setLoading(false);
   };
 
-  const fetchRegistrations = async () => {
+  const handleRefresh = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/registrations");
-      const json = await res.json();
-      if (json.success) {
-        setRegistrations(json.data || []);
-      }
+      setRegistrations(await fetchRegistrationList());
     } catch (err) {
       console.error("Gagal memuat peserta:", err);
     } finally {
@@ -94,9 +116,23 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchRegistrations();
-    }
+    if (!isAuthenticated) return;
+
+    let active = true;
+    fetchRegistrationList()
+      .then((data) => {
+        if (active) setRegistrations(data);
+      })
+      .catch((err: unknown) => {
+        if (active) console.error("Gagal memuat peserta:", err);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [isAuthenticated]);
 
   const handleDelete = async (id: string, name: string) => {
@@ -285,7 +321,7 @@ export default function AdminPage() {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={fetchRegistrations}
+              onClick={handleRefresh}
               disabled={loading}
               className="p-3 rounded-full bg-zinc-900/60 hover:bg-zinc-800 border border-white/10 text-white text-xs flex items-center gap-2 transition-all cursor-pointer shadow-md hover:border-white/20"
               title="Perbarui Data"

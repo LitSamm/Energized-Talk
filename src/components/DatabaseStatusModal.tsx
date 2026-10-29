@@ -8,8 +8,6 @@ import {
   AlertTriangle,
   RefreshCw,
   Server,
-  Code2,
-  ExternalLink,
   Layers,
 } from "lucide-react";
 
